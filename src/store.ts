@@ -105,4 +105,4 @@ export async function appendHistory(prompt: string, cwd = process.cwd()): Promis
   return next;
 }
 
-export { dir as sessionsDir, root as shiroHome };
+export { dir as sessionsDir, root as windcodeHome };

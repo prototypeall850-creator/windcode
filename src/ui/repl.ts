@@ -14,9 +14,8 @@ import { resolveAgent, isThinkingLevel, VARIANTS } from '../agents.js';
 import { askApproval, askQuestion, printBanner } from './render.js';
 
 // ---------------------------------------------------------------------------
-// Interactive REPL over the Session engine — the readline counterpart of
-// shiro-neko's ink TUI. Same commands, same event flow, keyboard-friendly
-// for Termux (no exotic key bindings).
+// Interactive REPL over the Session engine — readline-based, keyboard-
+// friendly for Termux (no exotic key bindings).
 // ---------------------------------------------------------------------------
 
 export interface ReplOptions {

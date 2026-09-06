@@ -1,6 +1,6 @@
 {
   "name": "windcode",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agentic coding CLI — reads your code, edits it, runs commands, and asks when unsure.",
   "type": "module",
   "engines": {

@@ -1,6 +1,5 @@
-// Node port of the Bun file/process APIs shiro-neko's engine relies on.
-// Same call shapes, Node underneath — so the ported engine files stay 1:1
-// readable against the upstream repo.
+// File/process helpers shared by the engine — the engine's old runtime
+// APIs (Bun) collapsed into these Node implementations.
 import { spawn as nodeSpawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {

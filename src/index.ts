@@ -143,6 +143,14 @@ program
   });
 
 program
+  .command('update')
+  .description('Update windcode ke rilis terbaru (untuk install via installer curl)')
+  .action(async () => {
+    const { update } = await import('./update.js');
+    process.exitCode = await update();
+  });
+
+program
   .command('config')
   .description('Lokasi & isi config')
   .action(() => {

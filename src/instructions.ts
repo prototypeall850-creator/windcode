@@ -1,7 +1,7 @@
 import { dirname, join, resolve } from 'node:path';
 import { exists, file, write, uuid } from "./fsx.js";
 
-const NAMES = ['AGENTS.md', 'CLAUDE.md', '.shiro.md'];
+const NAMES = ['AGENTS.md', 'CLAUDE.md', '.windcode.md'];
 /** Cap per file so one huge doc cannot crowd out the conversation. */
 const MAX_CHARS = 12_000;
 

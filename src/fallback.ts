@@ -8,7 +8,7 @@ export type FallbackEvent = {
 };
 
 /** Marks a model built by withFallback, so callers can assert the chain is active. */
-export const FALLBACK_CHAIN = Symbol.for('shiro.fallbackChain');
+export const FALLBACK_CHAIN = Symbol.for('windcode.fallbackChain');
 
 export const fallbackChainOf = (model: unknown): string[] | undefined =>
   (model as Record<symbol, string[] | undefined>)[FALLBACK_CHAIN];

@@ -47,7 +47,7 @@ const skillDirs = (cwd: string) => {
   return [
     { dir: join(home, 'registry', 'skills'), origin: 'registry' as const },
     { dir: join(home, 'skills'), origin: 'user' as const },
-    { dir: join(cwd, '.shiro', 'skills'), origin: 'project' as const },
+    { dir: join(cwd, '.windcode', 'skills'), origin: 'project' as const },
   ];
 };
 

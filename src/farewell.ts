@@ -1,4 +1,4 @@
-/** What the session was, for the line printed as shiro exits. */
+/** What the session was, for the line printed when windcode exits. */
 export type Farewell = {
   id: string;
   messages: number;
@@ -29,7 +29,7 @@ export function farewell({ id, messages, title }: Farewell): string {
     `Saved ${count}${named}`,
     '',
     'Resume it with:',
-    `  shiro -c                    newest session in this directory`,
-    `  shiro -r ${id.slice(0, PREFIX)}           this session by id`,
+    `  windcode -c                 newest session in this directory`,
+    `  windcode -r ${id.slice(0, PREFIX)}        this session by id`,
   ].join('\n');
 }

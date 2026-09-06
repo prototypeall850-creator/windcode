@@ -4,7 +4,7 @@ Agentic coding CLI — baca kode, edit kode, jalankan command, dan bertanya kala
 
 ## Fitur
 
-Engine agent-nya mengadopsi arsitektur **shiro-neko** (MIT) — diporting ke Node.js, dengan UX windcode di atasnya:
+Agent loop produksi dengan arsitektur yang sama kaya agent coding modern — berjalan penuh di Node.js:
 
 - **Agent loop kelas produksi** — streaming, retry transien, *stale-item repair*, **compaction otomatis** saat konteks membengkak (dengan summary yang ditulis model via `/compact`).
 - **5 varian agent** — `default`, `quick`, `deep`, `plan`, `review` (`/agent`) + tingkat thinking `off→max` (`/think`). Varian read-only menyembunyikan tools mutasi.
@@ -76,7 +76,15 @@ windcode ›
 
 Mode headless untuk script/CI: `windcode -p "tugasnya" --yolo`.
 
-Update ke versi baru: jalankan lagi perintah curl install di atas (installer menimpa yang lama).
+## Update
+
+Instalasi lewat installer bisa self-update — cek rilis terbaru, verifikasi checksum, lalu tukar app-nya:
+
+```bash
+windcode update
+```
+
+Update ke versi < 0.2.1: jalankan lagi perintah curl install di atas (perintah `update` baru ada mulai v0.2.1). Instalasi via source/npm tetap update dengan `git pull && npm install` / `npm update -g windcode`.
 
 Jalankan `windcode` pertama kali → wizard onboarding: pilih **OpenCode Zen (gratis)** / Ollama / provider lain, paste API key, pilih model. Ganti provider kapan saja:
 
@@ -113,7 +121,7 @@ Config ada di `~/.windcode/config.json`:
 
 ## Arsitektur
 
-Lapisan engine (adaptasi 1:1 dari shiro-neko, Node.js): `session.ts` (loop + approval + compaction), `tools*.ts` (26 tools), `ignore.ts` (jail + walk gitignore), `permission.ts` + `plugins*.ts` (aturan & guard), `memory.ts`, `prune.ts`, `subagent.ts` + `agents.ts`, `skills*.ts` + `registry.ts`, `store.ts` (sesi + riwayat prompt), `instructions.ts` (AGENTS.md), `prompt.ts`, `headless.ts`, `markdown.ts`, `pricing.ts`, `commands.ts`. Jembatan Bun→Node ada di `fsx.ts`.
+Lapisan engine (modul-modul terpisah, satu tanggung jawab per modul): `session.ts` (loop + approval + compaction), `tools*.ts` (26 tools), `ignore.ts` (jail + walk gitignore), `permission.ts` + `plugins*.ts` (aturan & guard), `memory.ts`, `prune.ts`, `subagent.ts` + `agents.ts`, `skills*.ts` + `registry.ts`, `store.ts` (sesi + riwayat prompt), `instructions.ts` (AGENTS.md), `prompt.ts`, `headless.ts`, `markdown.ts`, `pricing.ts`, `commands.ts`. Jembatan Bun→Node ada di `fsx.ts`.
 
 Lapisan windcode: `providers.ts` + `config.ts` (registry multi-provider, Zen default), `onboarding.ts` (wizard), `ui/repl.ts` + `ui/render.ts` (readline REPL), `index.ts` (CLI), `scripts/install.sh` (installer curl).
 
@@ -133,7 +141,6 @@ src/
     repl.ts         REPL + slash commands
     render.ts       banner, diff berwarna, prompt approval
 scripts/            smoke test + e2e test (mock LLM server)
-references/         shiro-neko (MIT) — repo referensi, bukan dependensi
 ```
 
 ## Tes
@@ -149,7 +156,7 @@ Extra keys (tanda `|`, `/`, `-`) nggak muncul? Geser dari kiri layar → Keyboar
 
 ## Roadmap
 
-- Skill registry & plugin guard (seperti shiro-neko)
+- Skill registry & plugin guard yang lebih dalam
 - MCP support
 - TUI versi Go + Bubble Tea (proyek terpisah)
 - Distribusi single binary
