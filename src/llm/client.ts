@@ -1,8 +1,52 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import type { LanguageModel } from 'ai';
+import { APICallError, type LanguageModel } from 'ai';
 import { getProvider, resolveApiKey, type WindcodeConfig } from '../config.js';
+
+/**
+ * Status codes that mean "this endpoint cannot serve this request shape"
+ * (as opposed to auth/rate-limit/5xx). Only these justify switching wire
+ * format. Same heuristic as shiro-neko's fallback.
+ */
+const SHAPE_MISMATCH = new Set([400, 404, 405, 415, 422, 501]);
+
+function shouldFallback(error: unknown): boolean {
+  if (!APICallError.isInstance(error)) return false;
+  if (error.isRetryable) return false;
+  return error.statusCode !== undefined && SHAPE_MISMATCH.has(error.statusCode);
+}
+
+/**
+ * Present [chat-completions, responses] as one model: newer OpenAI reasoning
+ * models refuse function tools on /chat/completions and demand /responses.
+ * Sticky — once the chat wire is rejected, later steps start on responses.
+ */
+function withResponsesFallback(chat: any, responses: any): LanguageModel {
+  let start = 0;
+  const models = [chat, responses];
+  const attempt = async <T>(op: (m: LanguageModel) => PromiseLike<T>): Promise<T> => {
+    let lastError: unknown;
+    for (let i = start; i < models.length; i++) {
+      try {
+        return await op(models[i]!);
+      } catch (error) {
+        lastError = error;
+        if (!shouldFallback(error) || i + 1 >= models.length) throw error;
+      }
+    }
+    throw lastError;
+  };
+  return {
+    specificationVersion: (chat as any).specificationVersion,
+    supportedUrls: (chat as any).supportedUrls,
+    provider: (chat as any).provider,
+    modelId: (chat as any).modelId,
+    doGenerate: (opts: any) => attempt((m: any) => m.doGenerate(opts)),
+    doStream: (opts: any) => attempt((m: any) => m.doStream(opts)),
+  } as unknown as LanguageModel;
+}
 
 /**
  * Resolve a `provider/model` pair into an AI SDK LanguageModel.
@@ -25,12 +69,18 @@ export function resolveModel(config: WindcodeConfig, providerId: string, modelId
 
   switch (def.kind) {
     case 'openai-compatible': {
-      const provider = createOpenAICompatible({
+      const chat = createOpenAICompatible({
         name: def.id,
         baseURL: def.baseURL,
         apiKey: apiKey ?? 'not-needed',
-      });
-      return provider(modelId);
+      })(modelId);
+      // Official OpenAI hosts reasoning models that only accept function
+      // tools on /responses — build both wires and switch on rejection.
+      if (/^https:\/\/api\.openai\.com(\/|$)/.test(def.baseURL)) {
+        const openai = createOpenAI({ apiKey: apiKey!, baseURL: def.baseURL });
+        return withResponsesFallback(chat, openai.responses(modelId));
+      }
+      return chat;
     }
     case 'anthropic': {
       const provider = createAnthropic({ baseURL: def.baseURL, apiKey: apiKey! });

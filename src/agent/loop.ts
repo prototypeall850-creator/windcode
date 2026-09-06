@@ -1,4 +1,4 @@
-import { streamText, stepCountIs, type ModelMessage, type TextStreamPart } from 'ai';
+import { streamText, stepCountIs, APICallError, type ModelMessage, type TextStreamPart } from 'ai';
 import { dim, cyan, red } from '../util/ansi.js';
 import { resolveModel } from '../llm/client.js';
 import { buildTools, resolveToolSets } from './tools/index.js';
@@ -90,17 +90,31 @@ export async function runAgentTurn(opts: TurnOptions): Promise<void> {
 }
 
 export function friendlyError(err: unknown): Error {
+  // Surface provider detail (status + response body) so "gagal" is diagnosable.
+  if (APICallError.isInstance(err)) {
+    const status = err.statusCode ?? '?';
+    const body = err.responseBody ? `\nBalasan server: ${shorten(err.responseBody.trim(), 300)}` : '';
+    if (err.statusCode === 429 || /rate limit|quota exceeded|too many requests/i.test(err.message)) {
+      return new Error(
+        'Rate limit / kuota habis. Coba ganti model atau provider: /model provider/model ' +
+          '(mis. /model zen/deepseek-v4-flash-free)',
+      );
+    }
+    if (err.statusCode === 401 || err.statusCode === 403) {
+      return new Error(
+        `API key ditolak (HTTP ${status}). Cek key-nya: \`windcode login\` atau env var provider.${body}`,
+      );
+    }
+    if (/model.*(not found|does not exist|invalid|unknown)/i.test(`${err.message} ${err.responseBody ?? ''}`)) {
+      return new Error(
+        `Model tidak dikenal endpoint-nya (HTTP ${status}). Lihat daftar yang valid: windcode models${body}`,
+      );
+    }
+    return new Error(`Provider error HTTP ${status}: ${err.message}${body}`);
+  }
+
   const e = err as { message?: string; statusCode?: number; name?: string };
   const msg = e?.message ?? String(err);
-  if (
-    e?.statusCode === 429 ||
-    /rate limit|quota exceeded|too many requests/i.test(msg)
-  ) {
-    return new Error(
-      'Rate limit / kuota habis. Coba ganti model atau provider: /model provider/model ' +
-        '(mis. /model openrouter/qwen/qwen3-coder:free atau /model ollama/...)',
-    );
-  }
   if (e?.name === 'AbortError' || /abort/i.test(msg)) {
     return new Error('Dibatalkan.');
   }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { bold, dim, red, cyan, yellow } from './util/ansi.js';
+import { bold, dim, red, cyan, yellow, green } from './util/ansi.js';
 import { loadConfig, getProvider } from './config.js';
 import { parseModelSpec, listModels } from './llm/client.js';
 import { runOnboarding } from './onboarding.js';
@@ -75,6 +75,81 @@ program
   .action(() => {
     console.log(`config: ~/.windcode/config.json`);
     console.log(JSON.stringify(loadConfig(), null, 2));
+  });
+
+program
+  .command('doctor')
+  .description('Diagnosis: config, key, endpoint, dan validitas model aktif')
+  .action(async () => {
+    const config = loadConfig();
+    const { providerId, modelId } = parseModelSpec(config);
+    const def = getProvider(providerId);
+    const { resolveApiKey } = await import('./config.js');
+
+    console.log(bold('\nwindcode doctor'));
+    console.log(`  provider : ${providerId}${def ? ` (${def.name})` : red(' (tidak dikenal!)')}`);
+    console.log(`  model    : ${modelId}`);
+    console.log(`  toolSets : ${['core', ...resolveToolSets(config.toolSets)].join(', ')}`);
+
+    const key = resolveApiKey(config, providerId);
+    if (def?.keyless) {
+      console.log(green('  key      : tidak dibutuhkan (provider lokal)'));
+    } else if (key) {
+      console.log(green(`  key      : ada (${key.slice(0, 6)}…${key.slice(-4)})`));
+    } else {
+      console.log(red(`  key      : BELUM ADA — jalankan \`windcode login ${providerId}\``));
+    }
+
+    // endpoint reachability + model validity via public /models when available
+    if (def?.kind === 'openai-compatible') {
+      try {
+        const models = await listModels(config, providerId);
+        const ids = new Set(models.map((m) => m.id));
+        console.log(green(`  endpoint : OK (${models.length} model terdaftar)`));
+        if (ids.size > 0 && !ids.has(modelId)) {
+          console.log(red(`  model    : "${modelId}" TIDAK ADA di endpoint — ini penyebab error chat!`));
+          console.log(dim(`             pilih dari: windcode models ${providerId}`));
+          const freeish = models.filter((m) => /free|pickle/i.test(m.id)).slice(0, 5);
+          if (freeish.length > 0) {
+            console.log(dim(`             contoh gratis: ${freeish.map((m) => m.id).join(', ')}`));
+          }
+          process.exitCode = 1;
+        } else if (ids.size > 0) {
+          console.log(green(`  model    : "${modelId}" terdaftar di endpoint ✓`));
+        }
+      } catch (err) {
+        console.log(yellow(`  endpoint : gagal dicek (${(err as Error).message})`));
+        console.log(dim('             bisa jadi endpoint tidak punya /models publik — bukan fatal.'));
+      }
+    } else {
+      console.log(dim('  endpoint : (provider non-OpenAI-compatible, dilewati)'));
+    }
+
+    // auth probe: 401/403 means bad key, 404/400 means wrong model id, 200/429 = key valid
+    if (!def?.keyless && key && def?.kind === 'openai-compatible') {
+      try {
+        const res = await fetch(`${def.baseURL}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          body: JSON.stringify({
+            model: modelId,
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 1,
+          }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (res.ok || res.status === 429) {
+          console.log(green(`  auth     : OK (HTTP ${res.status})`));
+        } else {
+          const body = (await res.text()).slice(0, 300);
+          console.log(red(`  auth     : HTTP ${res.status} — ${body}`));
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        console.log(yellow(`  auth     : gagal dicek (${(err as Error).message})`));
+      }
+    }
+    console.log('');
   });
 
 program.action(async () => {

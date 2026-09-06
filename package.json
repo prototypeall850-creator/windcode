@@ -1,6 +1,6 @@
 {
   "name": "windcode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agentic coding CLI — reads your code, edits it, runs commands, and asks when unsure.",
   "type": "module",
   "engines": {
@@ -32,6 +32,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
     "@ai-sdk/google": "^2.0.0",
+    "@ai-sdk/openai": "^4.0.60",
     "@ai-sdk/openai-compatible": "^1.0.0",
     "ai": "^5.0.0",
     "commander": "^14.0.0",

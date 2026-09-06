@@ -12,7 +12,7 @@ Agentic coding CLI — baca kode, edit kode, jalankan command, dan bertanya kala
   - `net` — `web_fetch` (opt-in, cap 30rb karakter)
   - `agent` — `todo_write`, `ask`, `task` (sub-agent read-only), `remember`/`recall`/`forget` (memory per-proyek)
 - **Multi-provider** dengan satu abstraksi:
-  - **OpenCode Zen** (default) — ada model gratis (`big-pickle`, `qwen3.6-plus-free`, …), key gratis dari [opencode.ai/zen](https://opencode.ai/zen)
+  - **OpenCode Zen** (default) — ada model gratis (`big-pickle`, `deepseek-v4-flash-free`, `mimo-v2.5-free`, …), key gratis dari [opencode.ai/zen](https://opencode.ai/zen)
   - **Ollama** — 100% lokal, tanpa API key
   - **BYOK** — OpenRouter (ada model `:free`), Groq, Cerebras, GitHub Models, Google Gemini, Anthropic, OpenAI
 - **Keamanan berlapis**:

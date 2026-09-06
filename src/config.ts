@@ -33,9 +33,10 @@ export const PROVIDERS: ProviderDef[] = [
     keyUrl: 'https://opencode.ai/zen',
     models: [
       { id: 'big-pickle', name: 'Big Pickle', free: true, note: 'Model stealth, gratis (terbatas)' },
-      { id: 'qwen3.6-plus-free', name: 'Qwen3.6 Plus Free', free: true, note: 'Coding kompleks, gratis' },
-      { id: 'mimo-v2-pro-free', name: 'MiMo V2 Pro Free', free: true, note: 'Coding agent, gratis' },
-      { id: 'minimax-m2.5-free', name: 'MiniMax M2.5 Free', free: true },
+      { id: 'deepseek-v4-flash-free', name: 'DeepSeek V4 Flash', free: true },
+      { id: 'mimo-v2.5-free', name: 'MiMo V2.5', free: true },
+      { id: 'nemotron-3-ultra-free', name: 'Nemotron 3 Ultra', free: true },
+      { id: 'ling-3.0-flash-fin-free', name: 'Ling 3.0 Flash', free: true },
     ],
     blurb:
       'Gateway model terkurasi dari tim OpenCode. Beberapa modelnya gratis — ' +
@@ -50,8 +51,9 @@ export const PROVIDERS: ProviderDef[] = [
     envKey: 'OPENROUTER_API_KEY',
     keyUrl: 'https://openrouter.ai/keys',
     models: [
-      { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)', free: true },
-      { id: 'deepseek/deepseek-chat-v3.1:free', name: 'DeepSeek V3.1 (free)', free: true },
+      { id: 'z-ai/glm-5.2:free', name: 'GLM 5.2 (free)', free: true },
+      { id: 'nvidia/nemotron-3.5-lightning:free', name: 'Nemotron 3.5 Lightning (free)', free: true },
+      { id: 'inclusionai/ling-3.0-flash-sante:free', name: 'Ling 3.0 Flash (free)', free: true },
       { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
     ],
     blurb: 'Satu key untuk ratusan model. Model `:free` ada kuota 20 req/menit.',
