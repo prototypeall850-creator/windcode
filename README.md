@@ -23,46 +23,59 @@ Agentic coding CLI — baca kode, edit kode, jalankan command, dan bertanya kala
 - **Sesi tersimpan** di `~/.windcode/sessions/` — bisa dilanjutkan dengan `/resume` atau `--resume`.
 - **Mode headless** — `windcode -p "tugas"` untuk script/CI (pasangkan dengan `--yolo`).
 
-## Setup
+## Install
 
-Butuh Node.js ≥ 20.
-
-```bash
-git clone https://github.com/prototypeall850-creator/windcode
-cd windcode
-npm install        # otomatis build (script prepare)
-npm link           # biar perintah `windcode` bisa dipanggil dari mana saja
-```
-
-Atau satu baris lewat npm:
+Butuh **Node.js ≥ 20**. Satu perintah untuk semua platform:
 
 ```bash
 npm install -g github:prototypeall850-creator/windcode
 ```
 
-## Install di HP (Android / Termux)
+Node.js belum terpasang?
 
-Semua lewat `pkg` (package manager bawaan Termux) — tidak butuh `curl`/`irm`.
+```bash
+# Termux (Android) — Termux diambil dari F-Droid, bukan Play Store
+pkg install nodejs-lts git
 
-1. Install **Termux dari F-Droid** ([f-droid.org/packages/com.termux](https://f-droid.org/packages/com.termux/)) — jangan dari Play Store (versinya usang).
-2. Di Termux:
+# Ubuntu / Debian
+sudo apt install -y nodejs npm
 
-   ```bash
-   pkg update -y
-   pkg install nodejs-lts git -y
-   npm install -g github:prototypeall850-creator/windcode
-   ```
+# Fedora
+sudo dnf install -y nodejs
 
-3. Jalankan di folder proyek:
+# Windows (PowerShell)
+winget install OpenJS.NodeJS.LTS
 
-   ```bash
-   cd ~/proyek-lu
-   windcode
-   ```
+# macOS
+brew install node
+```
 
-4. Wizard onboarding muncul → pilih **OpenCode Zen (gratis)** → buka [opencode.ai/zen](https://opencode.ai/zen) di browser HP untuk ambil API key gratis → paste → selesai.
+Atau dari source:
 
-Tips HP: kalau *extra keys row* (tanda `|`, `/`, `-`) nggak muncul, geser dari kiri layar → Keyboard. Untuk paste API key enak, `pkg install termux-api` + app Termux:API lalu pakai `termux-clipboard-paste`. Update ke versi terbaru: `npm update -g windcode` atau ulangi perintah install.
+```bash
+git clone https://github.com/prototypeall850-creator/windcode
+cd windcode
+npm install   # sekalian build (script prepare)
+npm link      # builds and puts `windcode` on PATH
+```
+
+## First run
+
+```
+windcode
+```
+
+Jalankan `windcode` di folder proyek. Kalau belum ada API key, wizard setup muncul: pilih **OpenCode Zen** (ada model gratis — ambil key gratis di [opencode.ai/zen](https://opencode.ai/zen)), Ollama (100% lokal, tanpa key), atau provider lain. Config tercatat di `~/.windcode/config.json` — pakai `/model` kapan saja untuk ganti model, `/help` untuk daftar perintah.
+
+```
+windcode v0.1.0 — OpenCode Zen/big-pickle
+  cwd: ~/proyek  |  tools: core, edit-plus, git, agent
+  /help untuk daftar perintah. ctrl-c untuk keluar.
+
+windcode ›
+```
+
+Mode headless untuk script/CI: `windcode -p "tugasnya" --yolo`.
 
 Jalankan `windcode` pertama kali → wizard onboarding: pilih **OpenCode Zen (gratis)** / Ollama / provider lain, paste API key, pilih model. Ganti provider kapan saja:
 
@@ -127,7 +140,7 @@ npx tsx scripts/e2e.ts     # agent loop end-to-end vs mock LLM server
 
 ## Catatan Termux (Android)
 
-Jalan normal via `pkg install nodejs-lts` + `npm install`. Saran: kerjakan di folder storage yang sudah diizinkan (`termux-setup-storage`), dan ingat keyboard HP — windcode sengaja memakai UI readline sederhana tanpa shortcut esoterik.
+Extra keys (tanda `|`, `/`, `-`) nggak muncul? Geser dari kiri layar → Keyboard. Untuk paste API key enak: `pkg install termux-api` + app **Termux:API** (dari F-Droid juga), lalu `termux-clipboard-paste`. Kerjakan proyek di home Termux (`~`), bukan shared storage, supaya symlink npm link tidak bermasalah.
 
 ## Roadmap
 
