@@ -12,9 +12,15 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
+    "prepare": "npm run build",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": [
     "ai",
     "agent",
