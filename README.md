@@ -25,20 +25,23 @@ Agentic coding CLI — baca kode, edit kode, jalankan command, dan bertanya kala
 
 ## Install
 
-Butuh **Node.js ≥ 20**. Satu perintah untuk semua platform:
+Butuh **Node.js ≥ 20**. Satu baris — Linux, macOS, Termux (Android):
 
 ```bash
-npm install -g github:prototypeall850-creator/windcode
+# Linux, macOS, Termux
+curl -fsSL https://raw.githubusercontent.com/prototypeall850-creator/windcode/main/scripts/install.sh | sh
 ```
 
-Node.js belum terpasang?
+Installer mendownload bundle jadi dari GitHub Releases (dist + dependencies tergabung, ±5MB), memverifikasi checksum sebelum memasang, menaruh app di `~/.windcode`, dan menyediakan perintah `windcode` di PATH. **Tanpa npm, tanpa clone.**
+
+Node.js-nya sendiri belum ada?
 
 ```bash
 # Termux (Android) — Termux diambil dari F-Droid, bukan Play Store
-pkg install nodejs-lts git
+pkg install nodejs-lts curl
 
 # Ubuntu / Debian
-sudo apt install -y nodejs npm
+sudo apt install -y nodejs npm curl
 
 # Fedora
 sudo dnf install -y nodejs
@@ -50,7 +53,9 @@ winget install OpenJS.NodeJS.LTS
 brew install node
 ```
 
-Atau dari source:
+Windows belum punya installer otomatis — pakai jalur source di bawah (PowerShell biasa), atau download `windcode-bundle.tar.gz` dari [Releases](https://github.com/prototypeall850-creator/windcode/releases), ekstrak, lalu `node dist\index.js`.
+
+Atau dari source (butuh npm):
 
 ```bash
 git clone https://github.com/prototypeall850-creator/windcode
@@ -65,10 +70,10 @@ npm link      # builds and puts `windcode` on PATH
 windcode
 ```
 
-Jalankan `windcode` di folder proyek. Kalau belum ada API key, wizard setup muncul: pilih **OpenCode Zen** (ada model gratis — ambil key gratis di [opencode.ai/zen](https://opencode.ai/zen)), Ollama (100% lokal, tanpa key), atau provider lain. Config tercatat di `~/.windcode/config.json` — pakai `/model` kapan saja untuk ganti model, `/help` untuk daftar perintah.
+Jalankan `windcode` di folder proyek. Kalau belum ada API key, wizard setup muncul: pilih **OpenCode Zen** (ada model gratis — ambil key gratis di [opencode.ai/zen](https://opencode.ai/zen)), Ollama (100% lokal, tanpa key), atau provider lain. Config tercatat di `~/.windcode/config.json` — pakai `/model` kapan saja untuk ganti model, `/help` untuk daftar perintah, dan `windcode doctor` bila ada yang terasa tidak jalan.
 
 ```
-windcode v0.1.0 — OpenCode Zen/big-pickle
+windcode v0.1.2 — OpenCode Zen/big-pickle
   cwd: ~/proyek  |  tools: core, edit-plus, git, agent
   /help untuk daftar perintah. ctrl-c untuk keluar.
 
@@ -76,6 +81,8 @@ windcode ›
 ```
 
 Mode headless untuk script/CI: `windcode -p "tugasnya" --yolo`.
+
+Update ke versi baru: jalankan lagi perintah curl install di atas (installer menimpa yang lama).
 
 Jalankan `windcode` pertama kali → wizard onboarding: pilih **OpenCode Zen (gratis)** / Ollama / provider lain, paste API key, pilih model. Ganti provider kapan saja:
 

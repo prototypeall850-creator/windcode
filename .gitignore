@@ -4,3 +4,5 @@ dist/
 references/
 *.tsbuildinfo
 .zcode/
+windcode-bundle.tar.gz
+windcode-bundle.tar.gz.sha256

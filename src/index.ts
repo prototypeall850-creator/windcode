@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { bold, dim, red, cyan, yellow, green } from './util/ansi.js';
 import { loadConfig, getProvider } from './config.js';
@@ -13,12 +14,15 @@ import { listSessions } from './session.js';
 import { resolveModel } from './llm/client.js';
 import type { ModelMessage } from 'ai';
 
+const require = createRequire(import.meta.url);
+const VERSION: string = require('../package.json').version;
+
 const program = new Command();
 
 program
   .name('windcode')
   .description('Agentic coding CLI — baca kode, edit, jalankan command, tanya kalau ragu.')
-  .version('0.1.0')
+  .version(VERSION)
   .option('-p, --prompt <text>', 'mode one-shot: jalankan satu prompt lalu keluar')
   .option('-m, --model <provider/model>', 'model yang dipakai (mis. zen/big-pickle)')
   .option('--yolo', 'auto-approve aksi non-destruktif (guard tetap aktif)', false)
