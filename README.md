@@ -25,13 +25,44 @@ Agentic coding CLI — baca kode, edit kode, jalankan command, dan bertanya kala
 
 ## Setup
 
-Butuh Node.js ≥ 20. Termux: `pkg install nodejs-lts` (Termux dari F-Droid, bukan Play Store).
+Butuh Node.js ≥ 20.
 
 ```bash
-npm install
-npm run build
-node dist/index.js        # atau: npm link  →  windcode
+git clone https://github.com/prototypeall850-creator/windcode
+cd windcode
+npm install        # otomatis build (script prepare)
+npm link           # biar perintah `windcode` bisa dipanggil dari mana saja
 ```
+
+Atau satu baris lewat npm:
+
+```bash
+npm install -g github:prototypeall850-creator/windcode
+```
+
+## Install di HP (Android / Termux)
+
+Semua lewat `pkg` (package manager bawaan Termux) — tidak butuh `curl`/`irm`.
+
+1. Install **Termux dari F-Droid** ([f-droid.org/packages/com.termux](https://f-droid.org/packages/com.termux/)) — jangan dari Play Store (versinya usang).
+2. Di Termux:
+
+   ```bash
+   pkg update -y
+   pkg install nodejs-lts git -y
+   npm install -g github:prototypeall850-creator/windcode
+   ```
+
+3. Jalankan di folder proyek:
+
+   ```bash
+   cd ~/proyek-lu
+   windcode
+   ```
+
+4. Wizard onboarding muncul → pilih **OpenCode Zen (gratis)** → buka [opencode.ai/zen](https://opencode.ai/zen) di browser HP untuk ambil API key gratis → paste → selesai.
+
+Tips HP: kalau *extra keys row* (tanda `|`, `/`, `-`) nggak muncul, geser dari kiri layar → Keyboard. Untuk paste API key enak, `pkg install termux-api` + app Termux:API lalu pakai `termux-clipboard-paste`. Update ke versi terbaru: `npm update -g windcode` atau ulangi perintah install.
 
 Jalankan `windcode` pertama kali → wizard onboarding: pilih **OpenCode Zen (gratis)** / Ollama / provider lain, paste API key, pilih model. Ganti provider kapan saja:
 
