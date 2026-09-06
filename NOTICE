@@ -1,0 +1,12 @@
+Windcode
+Copyright 2026 prototypeall850-creator
+
+The agent engine architecture (session loop, tools, permissions, plugins,
+skills, memory, prune, subagents, store, headless mode) is adapted from
+shiro-neko by zakirkun, licensed under the MIT License:
+  https://github.com/zakirkun/shiro-neko
+
+Adaptations for windcode: Bun -> Node.js runtime port (src/fsx.ts shim),
+multi-provider registry with OpenCode Zen as the free default provider,
+Indonesian onboarding UX, readline REPL instead of the ink TUI, and
+curl-based installer.

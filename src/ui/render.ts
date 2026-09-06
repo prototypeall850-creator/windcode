@@ -1,80 +1,64 @@
 import * as readline from 'node:readline';
 import { bold, dim, red, green, yellow, cyan } from '../util/ansi.js';
-import { diffStat, type DiffLine } from '../util/diff.js';
-import type { ApprovalRequest } from '../agent/tools/types.js';
 
 // ---------------------------------------------------------------------------
-// Terminal rendering helpers shared by the REPL and one-shot mode.
+// Terminal prompts shared by the REPL and headless mode. These use their own
+// readline interface because they can fire mid-turn, before the REPL's
+// interface exists.
 // ---------------------------------------------------------------------------
 
-export function printBanner(providerName: string, modelId: string, cwd: string, toolSets: string[], yolo: boolean): void {
-  console.log(bold('windcode') + dim(` v0.1.0 — ${providerName}/${modelId}`));
-  console.log(dim(`  cwd: ${cwd}  |  tools: ${toolSets.join(', ')}${yolo ? '  |  YOLO: auto-approve' : ''}`));
-  console.log(dim('  /help untuk daftar perintah. ctrl-c untuk keluar.\n'));
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+function question(q: string): Promise<string> {
+  return new Promise((resolve) => rl.question(q, (a) => resolve(a.trim())));
 }
 
-export function printHelp(): void {
-  console.log(bold('\nSlash commands'));
-  console.log('  /help              daftar perintah ini');
-  console.log('  /model [p/m]       lihat / ganti model (mis. /model zen/big-pickle)');
-  console.log('  /tools             tool sets yang aktif + isinya');
-  console.log('  /sessions          daftar sesi tersimpan');
-  console.log('  /resume [id]       lanjutkan sesi lain');
-  console.log('  /yolo              toggle auto-approve non-destruktif');
-  console.log('  /clear             mulai sesi baru (kosongkan konteks)');
-  console.log('  /exit, /quit       keluar\n');
+export function printBanner(providerLine: string, cwd: string, tools: string[], hasPlugins: boolean): void {
+  console.log(bold('windcode') + dim(` v0.2.0 — ${providerLine}`));
+  console.log(dim(`  cwd: ${cwd}  |  tools: ${tools.length} aktif${hasPlugins ? '  |  plugins: on' : ''}`));
+  console.log(dim('  /help untuk daftar perintah. ctrl-c batal turn / keluar.\n'));
 }
 
-export function formatDiff(lines: DiffLine[]): string {
-  const out = lines.map((l) => {
-    if (l.type === 'add') return green(`  + ${l.text}`);
-    if (l.type === 'del') return red(`  - ${l.text}`);
-    return dim(`    ${l.text}`);
-  });
-  return out.join('\n');
-}
+export type ApprovalAnswer = 'once' | 'always' | 'deny';
 
-export async function askApproval(
-  rl: readline.Interface,
-  req: ApprovalRequest,
-): Promise<'y' | 'a' | 'n'> {
-  console.log(yellow(`\n  ⚠ ${req.title}`));
-  if (req.detail && req.detail !== req.title) {
-    console.log(dim(`    ${req.detail}`));
-  }
-  if (req.diff && req.diff.length > 0) {
-    console.log(dim(`    ${diffStat(req.diff)}`));
-    console.log(formatDiff(req.diff));
-  }
+/** y = once, a = always (whitelist the suggested pattern), n/esc = deny. */
+export async function askApproval(req: {
+  title: string;
+  detail?: string;
+  suggestion?: string;
+}): Promise<ApprovalAnswer> {
+  console.log(yellow(`\n  ⚠ butuh izin: ${req.title}`));
+  if (req.detail) console.log(dim(`    ${req.detail}`));
+  if (req.suggestion) console.log(dim(`    [a] akan mengizinkan pola: ${req.suggestion}`));
   while (true) {
-    const answer = await new Promise<string>((resolve) =>
-      rl.question(yellow('  izinkan? [y]a / [a]lways / [n]o: '), (a) => resolve(a.trim().toLowerCase())),
-    );
-    if (answer === 'y' || answer === 'a' || answer === 'n') return answer;
-    if (answer === '') return 'n';
+    const raw = await question(yellow('  izinkan? [y]a / [a]lways / [n]o: '));
+    if (raw === 'y' || raw === 'Y' || raw === '') return 'once';
+    if (raw === 'a' || raw === 'A') return 'always';
+    if (raw === 'n' || raw === 'N') return 'deny';
     console.log(dim('  jawab y, a, atau n.'));
   }
 }
 
+/** Used by the `ask` tool. Undefined = user skipped (model proceeds with its guess). */
 export async function askQuestion(
-  rl: readline.Interface,
-  question: string,
+  questionText: string,
   options?: string[],
-): Promise<string> {
-  console.log(cyan(`\n  ❓ ${question}`));
+): Promise<string | undefined> {
+  console.log(cyan(`\n  ❓ ${questionText}`));
   if (options && options.length > 0) {
     options.forEach((o, i) => console.log(`    ${i + 1}. ${o}`));
     while (true) {
-      const raw = await new Promise<string>((resolve) =>
-        rl.question(cyan('  pilih nomor / ketik jawaban lain: '), (a) => resolve(a.trim())),
-      );
+      const raw = await question(cyan('  pilih nomor / ketik jawaban lain (kosongkan = lewati): '));
+      if (!raw) return undefined;
       const n = parseInt(raw, 10);
       if (Number.isInteger(n) && n >= 1 && n <= options.length) return options[n - 1];
-      if (raw) return raw;
+      return raw;
     }
   }
-  const answer = await new Promise<string>((resolve) =>
-    rl.question(cyan('  jawaban: '), (a) => resolve(a.trim())),
-  );
-  return answer || '(tanpa jawaban)';
+  const answer = await question(cyan('  jawaban (kosongkan = lewati): '));
+  return answer || undefined;
+}
+
+export function printDenied(note?: string): string {
+  return note ? `DENIED: ${note}` : 'DENIED: user menolak aksi ini';
 }

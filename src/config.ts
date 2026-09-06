@@ -1,188 +1,156 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { CONFIG_FILE, ensureWindcodeDir } from './util/paths.js';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import type { LanguageModel } from 'ai';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { withFallback, type FallbackEvent } from './fallback.js';
+import type { McpServerConfig } from './mcp.js';
+import { parsePermissions, type PermissionConfig } from './permission.js';
+import { isToolSetName, type ToolSetName } from './tools.js';
+import { DEFAULT_MODEL, DEFAULT_PRESET_ID, presetById } from './providers.js';
 
-// ---------------------------------------------------------------------------
-// Provider registry — every provider is described declaratively so adding a
-// new one is a single entry, not new code.
-// ---------------------------------------------------------------------------
+/** Wire protocol a preset speaks. 'openai-compatible' covers most gateways. */
+export type ProviderName = 'openai-compatible' | 'anthropic' | 'google';
 
-export type ProviderKind = 'openai-compatible' | 'anthropic' | 'google';
+export type Config = {
+  /** Preset id from providers.ts, e.g. 'zen'. */
+  provider: string;
+  model: string;
+  baseURL?: string;
+  apiKey?: string;
+  /** Preset id from providers.ts, kept so /provider can show what is configured. */
+  presetId?: string;
+  /** Retries per model call for transient failures. SDK default is 2. */
+  maxRetries?: number;
+  /** Default agent variant name. */
+  agent?: string;
+  /** Default thinking level. */
+  thinking?: string;
+  /** Plugin names to enable; omit for the default set. */
+  plugins?: string[];
+  /** Optional tool sets to offer beyond `core`; omit for all of them. */
+  toolSets?: ToolSetName[];
+  /** Which tool calls run, ask, or are refused. Omit for the defaults. */
+  permission?: PermissionConfig;
+  /** Index for `/registry`. Omit for the default one. */
+  registryUrl?: string;
+  mcpServers?: Record<string, McpServerConfig>;
+};
 
-export interface ProviderDef {
-  id: string;
-  name: string;
-  kind: ProviderKind;
-  baseURL: string;
-  /** Env var checked before the config file for the API key. */
-  envKey?: string;
-  /** Where the user gets a key (shown in onboarding). */
-  keyUrl?: string;
-  /** True when the provider works without any API key. */
-  keyless?: boolean;
-  /** Suggested model ids, first one is the default. */
-  models: { id: string; name: string; free?: boolean; note?: string }[];
-  blurb?: string;
+const configPath = () => join(process.env['WINDCODE_HOME'] ?? homedir(), '.windcode', 'config.json');
+
+/** Env key checked per preset when no explicit apiKey is configured. */
+const envKeyFor = (provider: string): string | undefined => presetById(provider)?.envKey;
+
+function isKnownProvider(v: unknown): v is string {
+  return typeof v === 'string' && presetById(v) !== undefined;
 }
 
-export const PROVIDERS: ProviderDef[] = [
-  {
-    id: 'zen',
-    name: 'OpenCode Zen',
-    kind: 'openai-compatible',
-    baseURL: 'https://opencode.ai/zen/v1',
-    keyUrl: 'https://opencode.ai/zen',
-    models: [
-      { id: 'big-pickle', name: 'Big Pickle', free: true, note: 'Model stealth, gratis (terbatas)' },
-      { id: 'deepseek-v4-flash-free', name: 'DeepSeek V4 Flash', free: true },
-      { id: 'mimo-v2.5-free', name: 'MiMo V2.5', free: true },
-      { id: 'nemotron-3-ultra-free', name: 'Nemotron 3 Ultra', free: true },
-      { id: 'ling-3.0-flash-fin-free', name: 'Ling 3.0 Flash', free: true },
-    ],
-    blurb:
-      'Gateway model terkurasi dari tim OpenCode. Beberapa modelnya gratis — ' +
-      'cukup daftar di opencode.ai/zen untuk ambil API key gratis. Catatan: ' +
-      'sebagian model gratis memakai data untuk training.',
-  },
-  {
-    id: 'openrouter',
-    name: 'OpenRouter',
-    kind: 'openai-compatible',
-    baseURL: 'https://openrouter.ai/api/v1',
-    envKey: 'OPENROUTER_API_KEY',
-    keyUrl: 'https://openrouter.ai/keys',
-    models: [
-      { id: 'z-ai/glm-5.2:free', name: 'GLM 5.2 (free)', free: true },
-      { id: 'nvidia/nemotron-3.5-lightning:free', name: 'Nemotron 3.5 Lightning (free)', free: true },
-      { id: 'inclusionai/ling-3.0-flash-sante:free', name: 'Ling 3.0 Flash (free)', free: true },
-      { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
-    ],
-    blurb: 'Satu key untuk ratusan model. Model `:free` ada kuota 20 req/menit.',
-  },
-  {
-    id: 'groq',
-    name: 'Groq',
-    kind: 'openai-compatible',
-    baseURL: 'https://api.groq.com/openai/v1',
-    envKey: 'GROQ_API_KEY',
-    keyUrl: 'https://console.groq.com/keys',
-    models: [
-      { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
-      { id: 'qwen/qwen3-32b', name: 'Qwen3 32B' },
-    ],
-    blurb: 'Inferens super cepat, free tier longgar untuk panggilan kecil.',
-  },
-  {
-    id: 'cerebras',
-    name: 'Cerebras',
-    kind: 'openai-compatible',
-    baseURL: 'https://api.cerebras.ai/v1',
-    envKey: 'CEREBRAS_API_KEY',
-    keyUrl: 'https://cloud.cerebras.ai',
-    models: [{ id: 'qwen-3-coder-480b', name: 'Qwen3 Coder 480B' }],
-    blurb: '1M token/hari gratis, inferens tercepat di kelasnya.',
-  },
-  {
-    id: 'github-models',
-    name: 'GitHub Models',
-    kind: 'openai-compatible',
-    baseURL: 'https://models.github.ai/inference',
-    envKey: 'GITHUB_TOKEN',
-    keyUrl: 'https://github.com/settings/tokens',
-    models: [{ id: 'openai/gpt-4.1-mini', name: 'GPT-4.1 mini' }],
-    blurb: 'Gratis dengan akun GitHub (PAT), rate limit ketat tapi cukup buat prototyping.',
-  },
-  {
-    id: 'google',
-    name: 'Google Gemini',
-    kind: 'google',
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta',
-    envKey: 'GEMINI_API_KEY',
-    keyUrl: 'https://aistudio.google.com/apikey',
-    models: [
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', note: 'Konteks 1M token' },
-    ],
-    blurb: 'Free tier ~1.500 req/hari, konteks 1M token — lega untuk kodebase besar.',
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic (Claude)',
-    kind: 'anthropic',
-    baseURL: 'https://api.anthropic.com',
-    envKey: 'ANTHROPIC_API_KEY',
-    keyUrl: 'https://console.anthropic.com/settings/keys',
-    models: [{ id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' }],
-    blurb: 'Kualitas coding paling konsisten, berbayar.',
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    kind: 'openai-compatible',
-    baseURL: 'https://api.openai.com/v1',
-    envKey: 'OPENAI_API_KEY',
-    keyUrl: 'https://platform.openai.com/api-keys',
-    models: [{ id: 'gpt-5-mini', name: 'GPT-5 mini' }],
-    blurb: 'Berbayar, ekosistem matang.',
-  },
-  {
-    id: 'ollama',
-    name: 'Ollama (lokal)',
-    kind: 'openai-compatible',
-    baseURL: 'http://localhost:11434/v1',
-    keyless: true,
-    models: [{ id: 'qwen3-coder:30b', name: 'Qwen3 Coder 30B', note: '`ollama pull qwen3-coder:30b` dulu' }],
-    blurb: '100% lokal dan gratis, tanpa API key. Kualitas tergantung model yang dipull.',
-  },
-];
-
-export function getProvider(id: string): ProviderDef | undefined {
-  return PROVIDERS.find((p) => p.id === id);
-}
-
-// ---------------------------------------------------------------------------
-// Config file (~/.windcode/config.json)
-// ---------------------------------------------------------------------------
-
-export interface WindcodeConfig {
-  defaultProvider: string;
-  defaultModel: string;
-  /** Keys stored here only if the env var isn't set. */
-  apiKeys: Record<string, string>;
-  /** Extra tool sets enabled beyond core. Subset of: edit-plus, git, net, agent. */
-  toolSets: string[];
-}
-
-const DEFAULT_TOOLSETS = ['edit-plus', 'git', 'agent'];
-
-export function defaultConfig(): WindcodeConfig {
-  return {
-    defaultProvider: 'zen',
-    defaultModel: 'big-pickle',
-    apiKeys: {},
-    toolSets: DEFAULT_TOOLSETS,
-  };
-}
-
-export function loadConfig(): WindcodeConfig {
-  ensureWindcodeDir();
-  if (!existsSync(CONFIG_FILE)) return defaultConfig();
+/** Raw file contents, without env overlay. Used when rewriting the file. */
+export function readConfigFile(): Partial<Config> {
+  const path = configPath();
+  if (!existsSync(path)) return {};
   try {
-    const raw = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
-    return { ...defaultConfig(), ...raw };
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    return parsed && typeof parsed === 'object' ? (parsed as Partial<Config>) : {};
   } catch {
-    return defaultConfig();
+    throw new Error(`${path} is not valid JSON`);
   }
 }
 
-export function saveConfig(config: WindcodeConfig): void {
-  ensureWindcodeDir();
-  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + '\n');
+/** Merges patch into the config file, preserving unrelated keys such as mcpServers. */
+export function writeConfigFile(patch: Partial<Config>): string {
+  const merged = { ...readConfigFile(), ...patch };
+  const path = configPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`);
+  return path;
 }
 
-/** Resolve the API key for a provider: env var first, then config file. */
-export function resolveApiKey(config: WindcodeConfig, providerId: string): string | undefined {
-  const def = getProvider(providerId);
-  if (!def) return undefined;
-  if (def.keyless) return 'not-needed';
-  if (def.envKey && process.env[def.envKey]) return process.env[def.envKey];
-  return config.apiKeys[providerId] || undefined;
+/** File config, then env overrides. Env wins so `WINDCODE_MODEL=x windcode` works. */
+export function loadConfig(): Config {
+  const file = readConfigFile();
+
+  const envProvider = process.env['WINDCODE_PROVIDER'];
+  const provider = isKnownProvider(envProvider)
+    ? envProvider
+    : isKnownProvider(file.provider)
+      ? file.provider
+      : DEFAULT_PRESET_ID;
+
+  const preset = presetById(provider);
+  return {
+    provider,
+    model: process.env['WINDCODE_MODEL'] ?? file.model ?? DEFAULT_MODEL,
+    baseURL: process.env['WINDCODE_BASE_URL'] ?? file.baseURL ?? preset?.baseURL,
+    apiKey:
+      process.env['WINDCODE_API_KEY'] ??
+      file.apiKey ??
+      (preset?.envKey ? process.env[preset.envKey] : undefined),
+    ...(file.presetId ? { presetId: file.presetId } : {}),
+    ...(file.maxRetries !== undefined ? { maxRetries: file.maxRetries } : {}),
+    ...(file.agent ? { agent: file.agent } : {}),
+    ...(file.thinking ? { thinking: file.thinking } : {}),
+    ...(Array.isArray(file.plugins) ? { plugins: file.plugins } : {}),
+    ...(Array.isArray(file.toolSets) ? { toolSets: file.toolSets.filter(isToolSetName) } : {}),
+    ...(() => {
+      const permission = parsePermissions(file.permission);
+      return permission ? { permission } : {};
+    })(),
+    ...(typeof file.registryUrl === 'string' ? { registryUrl: file.registryUrl } : {}),
+    ...(file.mcpServers ? { mcpServers: file.mcpServers } : {}),
+  };
 }
+
+export function missingKeyMessage(provider: string): string {
+  const preset = presetById(provider);
+  const envHint = preset?.envKey ? ` atau set ${preset.envKey} / WINDCODE_API_KEY` : '';
+  return (
+    `Belum ada API key untuk "${provider}". Jalankan \`windcode login ${provider}\`${envHint}` +
+    `${preset?.keyUrl ? `, ambil key gratis di ${preset.keyUrl}` : ''}.`
+  );
+}
+
+const isOfficialOpenAI = (baseURL: string | undefined) =>
+  !!baseURL && /^https:\/\/api\.openai\.com(\/|$)/.test(baseURL);
+
+/**
+ * Newer OpenAI reasoning models refuse function tools on /v1/chat/completions and
+ * demand /v1/responses. Rather than guess per model id, build both and let
+ * withFallback switch when the endpoint rejects the request shape.
+ */
+export function resolveModel(cfg: Config, onFallback?: (e: FallbackEvent) => void): LanguageModel {
+  const preset = presetById(cfg.provider);
+  const kind: ProviderName = cfg.baseURL?.includes('generativelanguage.googleapis.com')
+    ? 'google'
+    : (preset?.kind ?? 'openai-compatible');
+  const baseURL = cfg.baseURL ?? preset?.baseURL;
+
+  if (!cfg.apiKey && !preset?.keyless) throw new Error(missingKeyMessage(cfg.provider));
+  const apiKey = cfg.apiKey ?? 'not-needed';
+
+  if (kind === 'anthropic') {
+    return createAnthropic({ apiKey, baseURL })(cfg.model);
+  }
+  if (kind === 'google') {
+    return createGoogleGenerativeAI({ apiKey, baseURL })(cfg.model);
+  }
+
+  const chat = createOpenAICompatible({
+    name: 'windcode',
+    apiKey,
+    baseURL: baseURL ?? 'https://api.openai.com/v1',
+  })(cfg.model);
+
+  if (!isOfficialOpenAI(baseURL)) return chat;
+
+  const openai = createOpenAI({ apiKey, baseURL });
+  return withFallback([chat, openai.responses(cfg.model)], onFallback);
+}
+
+export { configPath, DEFAULT_MODEL, DEFAULT_PRESET_ID };

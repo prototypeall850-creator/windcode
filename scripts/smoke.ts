@@ -1,30 +1,15 @@
-// Smoke test: exercise tools + permissions without an API key.
-import { buildCoreTools } from '../src/agent/tools/core.js';
-import { buildEditPlusTools } from '../src/agent/tools/editplus.js';
-import { buildAgentTools } from '../src/agent/tools/agent-tools.js';
-import { guardVerdict } from '../src/agent/permissions.js';
-import type { ToolContext } from '../src/agent/tools/types.js';
-
-const ctx: ToolContext = {
-  cwd: process.cwd(),
-  headless: false,
-  yolo: false,
-  allowlist: new Set<string>(),
-  todos: [],
-  ui: {
-    onToolStart: () => {},
-    onToolEnd: () => {},
-    onCommandOutput: () => {},
-    requestApproval: async (req) => {
-      console.log(`   [mock approval] ${req.title} → y`);
-      return 'y';
-    },
-    askUser: async (q) => `jawaban-mock: ${q}`,
-  },
-};
+// Smoke test untuk engine hasil porting: ignore/jail, permission rules,
+// tools inti, store, notebook — tanpa API key.
+import { tools, disabledToolNames, isToolSetName, type ToolSetName } from '../src/tools.js';
+import { jail, walk } from '../src/ignore.js';
+import { Permissions, parsePermissions } from '../src/permission.js';
+import * as store from '../src/store.js';
+import { Notebook } from '../src/notebook.js';
+import { globToRegex } from '../src/fsx.js';
+import { guardPlugin } from '../src/plugins-builtin.js';
 
 let failures = 0;
-async function check(label: string, fn: () => Promise<void>): Promise<void> {
+async function check(label: string, fn: () => Promise<void> | void): Promise<void> {
   try {
     await fn();
     console.log(`✓ ${label}`);
@@ -33,149 +18,145 @@ async function check(label: string, fn: () => Promise<void>): Promise<void> {
     console.log(`✗ ${label}: ${(e as Error).message}`);
   }
 }
-
 const assert = (cond: boolean, msg: string) => {
   if (!cond) throw new Error(msg);
 };
 
-const core = buildCoreTools(ctx);
-const edit = buildEditPlusTools(ctx);
-const agent = buildAgentTools(ctx);
+const exec = (name: keyof typeof tools, input: unknown) =>
+  (tools[name] as any).execute(input as never, { toolCallId: 't', messages: [] } as never);
 
-await check('read_file membaca file nyata', async () => {
-  const out = (await core.read_file.execute({ path: 'package.json' }, ctx)) as string;
+await check('read_file membaca file nyata dengan nomor baris', async () => {
+  const out = (await exec('read_file', { path: 'package.json' })) as string;
   assert(out.includes('"windcode"'), 'nama proyek tidak ada di output');
+  assert(/^\d+: /m.test(out), 'tanpa nomor baris');
 });
 
-await check('read_file menolak .env', async () => {
-  const out = (await core.read_file.execute({ path: '.env' }, ctx)) as string;
-  assert(out.startsWith('ERROR'), 'seharusnya ditolak');
+await check('jail menolak path escape', async () => {
+  let escaped = false;
+  try {
+    jail('../../etc/passwd');
+  } catch {
+    escaped = true;
+  }
+  assert(escaped, '../../etc/passwd lolos jail');
 });
 
-await check('glob menemukan src', async () => {
-  const out = (await core.glob.execute({ pattern: 'src/**/*.ts' }, ctx)) as string;
-  assert(out.includes('src/agent/loop.ts'), 'loop.ts tidak ditemukan');
+await check('write_file + edit_file + multi_edit atomik', async () => {
+  const w = (await exec('write_file', { path: '.smoke.txt', content: 'satu\ndua\n' })) as string;
+  assert(w.includes('Created') || w.includes('Wrote'), w);
+  const e = (await exec('edit_file', { path: '.smoke.txt', oldString: 'dua', newString: 'DUA' })) as string;
+  assert(/Replaced|replaced/.test(e), e);
+  const multi = (await exec('multi_edit', {
+    path: '.smoke.txt',
+    edits: [
+      { oldString: 'satu', newString: 'SATU' },
+      { oldString: 'DUA', newString: 'tiga' },
+    ],
+  })) as string;
+  assert(/Applied|applied/.test(multi), multi);
+  const r = (await exec('read_file', { path: '.smoke.txt' })) as string;
+  assert(r.includes('SATU') && r.includes('tiga'), r);
 });
 
-await check('grep menemukan string', async () => {
-  const out = (await core.grep.execute({ pattern: 'GUARD_PATTERNS', include: '*.ts' }, ctx)) as string;
-  assert(out.includes('permissions.ts'), 'tidak menemukan permissions.ts');
+await check('edit ambigu ditolak tanpa replaceAll', async () => {
+  await exec('write_file', { path: '.smoke2.txt', content: 'x x x\n' });
+  let threw = false;
+  try {
+    await exec('edit_file', { path: '.smoke2.txt', oldString: 'x', newString: 'y' });
+  } catch (e) {
+    threw = /times|appears/i.test((e as Error).message);
+  }
+  assert(threw, 'edit ambigu harus melempar error');
 });
 
-await check('bash jalan + allowlist always', async () => {
-  const uiOrig = ctx.ui.requestApproval;
-  ctx.ui.requestApproval = async (req) => {
-    console.log(`   [mock approval] ${req.title} → a (always)`);
-    return 'a';
-  };
-  const out1 = (await core.bash.execute({ command: 'echo hello-windcode' }, ctx)) as string;
-  ctx.ui.requestApproval = async () => {
-    throw new Error('seharusnya tidak diminta lagi (allowlist)');
-  };
-  const out2 = (await core.bash.execute({ command: 'echo lagi' }, ctx)) as string;
-  ctx.ui.requestApproval = uiOrig;
-  assert(out1.includes('hello-windcode'), `output aneh: ${out1}`);
-  assert(out2.includes('lagi'), 'allowlist tidak bekerja');
+await check('glob & grep bekerja', async () => {
+  const g = (await exec('glob', { pattern: 'src/**/*.ts', limit: 50 })) as string;
+  assert(g.includes('src/session.ts'), g);
+  const gr = (await exec('grep', { pattern: 'GUARD', include: '*.ts' })) as string;
+  assert(/^\S+\.ts:\d+:/m.test(gr), 'format grep salah: ' + gr.slice(0, 80));
+  assert(globToRegex('src/**/a*.ts')('src/agent/ask.ts') === false ? globToRegex('**/*.ts')('src/agent/ask.ts') : true, 'globToRegex rusak');
 });
 
-await check('guard menolak rm -rf / dan shutdown', async () => {
-  assert(guardVerdict('rm -rf /') !== null, 'rm -rf / lolos');
-  assert(guardVerdict('sudo shutdown -h now') !== null, 'shutdown lolos');
-  assert(guardVerdict('git push --force origin main') !== null, 'force push lolos');
-  assert(guardVerdict('ls -la') === null, 'ls ikut ditolak');
+await check('Permissions: allow/deny/ask + pattern', async () => {
+  const p = new Permissions({});
+  const read = p.check('read_file', { path: 'a.txt' });
+  assert(read.decision === 'allow', 'read_file harus allow');
+  const bash = p.check('bash', { command: 'echo hi' });
+  assert(bash.decision === 'ask', 'bash default ask');
+  p.grant('bash', 'echo *');
+  const after = p.check('bash', { command: 'echo lagi' });
+  assert(after.decision === 'allow', 'allowlist pattern gagal');
+  const parsed = parsePermissions({ bash: { 'git *': 'allow' } });
+  const gitRule = new Permissions({ config: parsed }).check('bash', { command: 'git status' });
+  assert(gitRule.decision === 'allow', 'rule kustom gagal');
 });
 
-await check('bash ditolak user (n)', async () => {
-  ctx.ui.requestApproval = async () => 'n';
-  const out = (await core.bash.execute({ command: 'whoami' }, ctx)) as string;
-  ctx.ui.requestApproval = async (req) => {
-    console.log(`   [mock approval] ${req.title} → y`);
-    return 'y';
-  };
-  assert(out.startsWith('DENIED'), 'seharusnya DENIED');
+await check('guard plugin menolak perintah destruktif', async () => {
+  const block = guardPlugin.beforeToolCall?.({ toolName: 'bash', input: { command: 'rm -rf /' }, cwd: process.cwd() });
+  assert(typeof block === 'string', 'rm -rf / lolos guard');
+  const ok = guardPlugin.beforeToolCall?.({ toolName: 'bash', input: { command: 'ls -la' }, cwd: process.cwd() });
+  assert(ok === undefined, 'ls ikut diblok');
 });
 
-await check('write_file + edit_file + diff preview', async () => {
-  const w = (await core.write_file.execute(
-    { path: '.smoke-test.txt', content: 'baris satu\nbaris dua\n' },
-    ctx,
-  )) as string;
-  assert(w.startsWith('OK'), w);
-  const e = (await core.edit_file.execute(
-    { path: '.smoke-test.txt', old_string: 'baris dua', new_string: 'baris DUA diedit' },
-    ctx,
-  )) as string;
-  assert(e.startsWith('OK'), e);
-  const r = (await core.read_file.execute({ path: '.smoke-test.txt' }, ctx)) as string;
-  assert(r.includes('DUA diedit'), 'edit tidak tersimpan');
+await check('store: save/load/list/resolveId prefix', async () => {
+  process.env['WINDCODE_HOME'] = '/tmp/windcode-smoke-' + process.pid;
+  const rec = {
+    id: store.newId(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    cwd: '/tmp',
+    provider: 'zen',
+    model: 'big-pickle',
+    title: 'smoke',
+    inputTokens: 0,
+    outputTokens: 0,
+    messages: [],
+  } satisfies store.SessionRecord;
+  await store.save(rec);
+  const loaded = await store.load(rec.id);
+  assert(loaded?.title === 'smoke', 'load gagal');
+  const byPrefix = await store.resolveId(rec.id.slice(0, 8));
+  assert(byPrefix === rec.id, 'resolveId prefix gagal');
+  const list = await store.list(5);
+  assert(list.length >= 1, 'list kosong');
 });
 
-await check('edit_file menolak ambigu', async () => {
-  const out = (await core.edit_file.execute(
-    { path: '.smoke-test.txt', old_string: 'baris', new_string: 'x' },
-    ctx,
-  )) as string;
-  assert(out.includes('tidak ambigu') || out.includes('ditemukan'), out);
+await check('notebook: add/toggle/state', () => {
+  const nb = new Notebook();
+  nb.tools().todo_write.execute(
+    { todos: [{ content: 'uji', status: 'in_progress' }] },
+    { toolCallId: 't', messages: [] } as never,
+  );
+  assert(nb.state().todos.length === 1, 'todos tidak tersimpan');
 });
 
-await check('multi_edit atomik', async () => {
-  const ok = (await edit.multi_edit.execute(
-    {
-      path: '.smoke-test.txt',
-      edits: [
-        { old_string: 'baris satu', new_string: 'SATU' },
-        { old_string: 'baris DUA diedit', new_string: 'DUA' },
-      ],
-    },
-    ctx,
-  )) as string;
-  assert(ok.startsWith('OK'), ok);
-  const fail = (await edit.multi_edit.execute(
-    {
-      path: '.smoke-test.txt',
-      edits: [
-        { old_string: 'SATU', new_string: 'satu' },
-        { old_string: 'TIDAK ADA ABCXYZ', new_string: 'x' },
-      ],
-    },
-    ctx,
-  )) as string;
-  assert(fail.startsWith('ERROR') && fail.includes('Tidak ada yang ditulis'), fail);
+await check('toolSets: disabledToolNames', () => {
+  const off = disabledToolNames(['core' as ToolSetName]);
+  assert(off.includes('web_fetch'), 'web_fetch tidak ter-disable');
+  assert(!off.includes('read_file'), 'core ikut ter-disable');
+  assert(isToolSetName('core') && !isToolSetName('ngawur'), 'isToolSetName rusak');
 });
 
-await check('move_file & delete_file', async () => {
-  const m = (await edit.move_file.execute(
-    { path: '.smoke-test.txt', new_path: '.smoke-test-renamed.txt' },
-    ctx,
-  )) as string;
-  assert(m.startsWith('OK'), m);
-  const d = (await edit.delete_file.execute({ path: '.smoke-test-renamed.txt' }, ctx)) as string;
-  assert(d.startsWith('OK'), d);
+await check('walk menghormati .gitignore', async () => {
+  const seen: string[] = [];
+  for await (const rel of walk({ root: process.cwd() })) {
+    seen.push(rel);
+    if (seen.length > 500) break;
+  }
+  assert(!seen.some((s) => s.startsWith('node_modules/')), 'node_modules bocor');
+  assert(!seen.some((s) => s.startsWith('dist/')), 'dist bocor (gitignore)');
 });
 
-await check('list_dir pohon', async () => {
-  const out = (await edit.list_dir.execute({ path: 'src', depth: 2 }, ctx)) as string;
-  assert(out.includes('agent/'), 'folder agent tidak terlihat');
+await check('bash jalan dan stream', async () => {
+  const out = (await exec('bash', { command: 'echo hello-windcode' })) as string;
+  assert(out.includes('hello-windcode'), out);
 });
 
-await check('todo_write + ask', async () => {
-  const t = (await agent.todo_write.execute(
-    { todos: [{ content: 'uji smoke', status: 'in_progress' }] },
-    ctx,
-  )) as string;
-  assert(t.includes('uji smoke'), t);
-  assert(ctx.todos.length === 1, 'todos tidak terisi');
-  const a = (await agent.ask.execute({ question: 'lanjut?' }, ctx)) as string;
-  assert(a.includes('jawaban-mock'), a);
-});
-
-await check('memory remember/recall/forget', async () => {
-  await agent.remember.execute({ note: 'smoke test note' }, ctx);
-  const r = (await agent.recall.execute({}, ctx)) as string;
-  assert(r.includes('smoke test note'), r);
-  const f = (await agent.forget.execute({ match: 'smoke test' }, ctx)) as string;
-  assert(f.startsWith('OK'), f);
-});
+// cleanup
+try {
+  await exec('delete_file', { path: '.smoke.txt' });
+  await exec('delete_file', { path: '.smoke2.txt' });
+} catch {}
 
 console.log(failures === 0 ? '\nSEMUA LULUS ✅' : `\n${failures} TES GAGAL ❌`);
 process.exit(failures === 0 ? 0 : 1);

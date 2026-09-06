@@ -4,24 +4,18 @@ Agentic coding CLI — baca kode, edit kode, jalankan command, dan bertanya kala
 
 ## Fitur
 
-- **Agent loop** — model menerima definisi tools, memanggilnya bila perlu, hasilnya dikembalikan ke model, sampai tugas selesai.
-- **26 tools dalam 5 set** (konsep *tool sets*: set core selalu aktif, sisanya opsional via config agar hemat token):
-  - `core` — `read_file`, `write_file`, `edit_file`, `glob`, `grep` (ripgrep + fallback JS), `bash` (output streaming)
-  - `edit-plus` — `multi_edit`, `apply_patch` (atomik multi-file), `read_many_files`, `list_dir`, `move_file`, `delete_file`
-  - `git` — `git_status`, `git_diff`, `git_log`, `git_show`, `git_blame`, `git_branch`, `git_commit_message` (read-only, bebas approval)
-  - `net` — `web_fetch` (opt-in, cap 30rb karakter)
-  - `agent` — `todo_write`, `ask`, `task` (sub-agent read-only), `remember`/`recall`/`forget` (memory per-proyek)
-- **Multi-provider** dengan satu abstraksi:
-  - **OpenCode Zen** (default) — ada model gratis (`big-pickle`, `deepseek-v4-flash-free`, `mimo-v2.5-free`, …), key gratis dari [opencode.ai/zen](https://opencode.ai/zen)
-  - **Ollama** — 100% lokal, tanpa API key
-  - **BYOK** — OpenRouter (ada model `:free`), Groq, Cerebras, GitHub Models, Google Gemini, Anthropic, OpenAI
-- **Keamanan berlapis**:
-  - *Guard* menolak command destruktif (`rm -rf /`, `mkfs`, fork bomb, force push, …) — bahkan saat `--yolo`
-  - File `.env` / `.pem` / `.key` ditolak dibaca/ditulis
-  - Write/edit/bash/web_fetch butuh approval `[y]a / [a]lways / [n]o` dengan preview diff
-  - Allowlist per-pattern sesi, mis. `echo *` setelah "always"
-- **Sesi tersimpan** di `~/.windcode/sessions/` — bisa dilanjutkan dengan `/resume` atau `--resume`.
-- **Mode headless** — `windcode -p "tugas"` untuk script/CI (pasangkan dengan `--yolo`).
+Engine agent-nya mengadopsi arsitektur **shiro-neko** (MIT) — diporting ke Node.js, dengan UX windcode di atasnya:
+
+- **Agent loop kelas produksi** — streaming, retry transien, *stale-item repair*, **compaction otomatis** saat konteks membengkak (dengan summary yang ditulis model via `/compact`).
+- **5 varian agent** — `default`, `quick`, `deep`, `plan`, `review` (`/agent`) + tingkat thinking `off→max` (`/think`). Varian read-only menyembunyikan tools mutasi.
+- **26 tools dalam 5 set** — `read_file`, `write_file`, `edit_file`, `multi_edit`, `apply_patch` (atomik multi-file), `glob`, `grep` (ripgrep + fallback JS), `bash` (streaming + interrupt tanpa mematikan turn), git read-only, `web_fetch`, `task` (sub-agent), `ask`, `todo_write`, memory `remember/recall/forget`.
+- **Sandbox path (jail)** — model tidak bisa keluar dari workspace; `walk` menghormati `.gitignore` + `.windcodeignore` bertingkat.
+- **Permission berlapis** — aturan per-tool/pattern (`permission` di config), guard plugin yang menolak `rm -rf /` dsb. bahkan saat `--yolo`, repeat-guard untuk call identik beruntun, approval `y/a/n` dengan pola `always` (mis. `git *`).
+- **Multi-provider** dengan Zen gratis sebagai default (lihat di bawah) + Ollama/LM Studio lokal tanpa key + BYOK semua gateway populer.
+- **Skills, plugins, memory proyek, MCP** — skills = prompt terstruktur, plugins = aturan refusal deklaratif, memory persisten per-proyek (`/notes`), dan MCP server via config.
+- **AGENTS.md** — instruksi proyek (`/init` menulisannya untuk lu) otomatis masuk system prompt.
+- **Sesi** — auto-save ter-debounce, `/resume` (id bisa prefix), `/cost` estimasi biaya, headless `-p` + `--json` untuk script/CI.
+
 
 ## Install
 
@@ -118,6 +112,10 @@ Config ada di `~/.windcode/config.json`:
 `toolSets` yang tersedia: `edit-plus`, `git`, `net`, `agent` (core selalu aktif).
 
 ## Arsitektur
+
+Lapisan engine (adaptasi 1:1 dari shiro-neko, Node.js): `session.ts` (loop + approval + compaction), `tools*.ts` (26 tools), `ignore.ts` (jail + walk gitignore), `permission.ts` + `plugins*.ts` (aturan & guard), `memory.ts`, `prune.ts`, `subagent.ts` + `agents.ts`, `skills*.ts` + `registry.ts`, `store.ts` (sesi + riwayat prompt), `instructions.ts` (AGENTS.md), `prompt.ts`, `headless.ts`, `markdown.ts`, `pricing.ts`, `commands.ts`. Jembatan Bun→Node ada di `fsx.ts`.
+
+Lapisan windcode: `providers.ts` + `config.ts` (registry multi-provider, Zen default), `onboarding.ts` (wizard), `ui/repl.ts` + `ui/render.ts` (readline REPL), `index.ts` (CLI), `scripts/install.sh` (installer curl).
 
 ```
 src/

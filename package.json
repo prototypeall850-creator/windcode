@@ -1,6 +1,6 @@
 {
   "name": "windcode",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Agentic coding CLI — reads your code, edits it, runs commands, and asks when unsure.",
   "type": "module",
   "engines": {
@@ -30,13 +30,14 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.0",
-    "@ai-sdk/google": "^2.0.0",
-    "@ai-sdk/openai": "^4.0.60",
-    "@ai-sdk/openai-compatible": "^1.0.0",
-    "ai": "^5.0.0",
+    "@ai-sdk/anthropic": "^4.0.46",
+    "@ai-sdk/google": "^4.0.64",
+    "@ai-sdk/mcp": "^2.0.41",
+    "@ai-sdk/openai": "^4.0.53",
+    "@ai-sdk/openai-compatible": "^3.0.41",
+    "ai": "^7.0.87",
     "commander": "^14.0.0",
-    "zod": "^4.0.0"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

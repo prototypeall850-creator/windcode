@@ -1,7 +1,7 @@
 import * as readline from 'node:readline';
-import { dim, bold, cyan, yellow } from './util/ansi.js';
-import { PROVIDERS, getProvider, loadConfig, saveConfig, resolveApiKey, type WindcodeConfig } from './config.js';
-import { listModels } from './llm/client.js';
+import { bold, dim, cyan, yellow } from './util/ansi.js';
+import { readConfigFile, writeConfigFile, configPath, type Config } from './config.js';
+import { PRESETS, presetById, fetchModels, DEFAULT_PRESET_ID, DEFAULT_MODEL } from './providers.js';
 
 // ---------------------------------------------------------------------------
 // First-run wizard: pick a provider (Zen recommended — free), paste the key,
@@ -24,96 +24,83 @@ async function pickFromList(rl: readline.Interface, items: string[]): Promise<nu
   }
 }
 
-async function configureProvider(rl: readline.Interface, providerId: string, config: WindcodeConfig): Promise<void> {
-  const def = getProvider(providerId);
-  if (!def) throw new Error(`provider tidak dikenal: ${providerId}`);
-
-  console.log(dim(`\n${def.name} — ${def.blurb ?? ''}\n`));
-
-  // API key
-  if (!def.keyless) {
-    const envHint = def.envKey ? ` (atau set env ${def.envKey})` : '';
-    if (def.keyUrl) {
-      console.log(dim(`Ambil API key di: ${def.keyUrl}${envHint}`));
-    }
-    if (resolveApiKey(config, providerId)) {
-      console.log(greenSafe(`  ✓ key sudah terdeteksi, lewati.`));
-    } else {
-      const key = await question(rl, dim('Paste API key (kosongkan untuk lewati): '));
-      if (key) {
-        config.apiKeys[providerId] = key;
-      } else if (!def.envKey) {
-        console.log(yellow('  Tanpa key, provider ini belum bisa dipakai.'));
-      }
-    }
-  }
-
-  // model
-  let modelId = def.models[0]?.id ?? '';
-  try {
-    console.log(dim('Mengambil daftar model dari endpoint…'));
-    const models = await listModels(config, providerId);
-    if (models.length > 0) {
-      console.log(dim(`Endpoint melaporkan ${models.length} model. Menampilkan yang direkomendasikan + 20 pertama:`));
-      const recommended = new Set(def.models.map((m) => m.id));
-      const shown = [...def.models.map((m) => `${m.name ?? m.id}${m.free ? ' [gratis]' : ''}`),
-        ...models.filter((m) => !recommended.has(m.id)).slice(0, 20).map((m) => m.id)];
-      const idx = await pickFromList(rl, shown);
-      if (idx < def.models.length) {
-        modelId = def.models[idx].id;
-      } else {
-        modelId = await question(rl, dim('ketik model id: ')) || modelId;
-      }
-    }
-  } catch {
-    // endpoint listing failed (offline/bad key) — fall back to curated list
-    if (def.models.length > 1) {
-      const idx = await pickFromList(rl, def.models.map((m) => `${m.name ?? m.id}${m.free ? ' [gratis]' : ''}${m.note ? ` — ${m.note}` : ''}`));
-      modelId = def.models[idx].id;
-    }
-  }
-
-  config.defaultProvider = providerId;
-  config.defaultModel = modelId;
-  saveConfig(config);
-  console.log(`\n${cyan('✓')} tersimpan: ${bold(def.name)} / ${bold(modelId)}`);
-  console.log(dim(`  config: ~/.windcode/config.json`));
-}
-
-function greenSafe(t: string): string {
-  return `\x1b[32m${t}\x1b[0m`;
-}
-
-export async function runOnboarding(onlyProvider?: string): Promise<WindcodeConfig> {
+export async function runOnboarding(onlyProvider?: string): Promise<Config> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     console.log(bold('\nWindcode — setup awal'));
-    const config = loadConfig();
+    const file = readConfigFile();
 
-    if (onlyProvider) {
-      await configureProvider(rl, onlyProvider, config);
-      return config;
+    // 1. provider
+    let providerId = onlyProvider;
+    if (!providerId) {
+      const zenHasKeys = Boolean(process.env['OPENCODE_API_KEY'] ?? file.apiKey);
+      const options = [
+        `OpenCode Zen — gratis, recommended${zenHasKeys ? ' (key sudah ada)' : ''}  → daftar di opencode.ai/zen`,
+        'Ollama — 100% lokal, tanpa API key (butuh `ollama serve` jalan)',
+        'Provider lain — OpenRouter / Groq / Gemini / Anthropic / dll (BYOK)',
+      ];
+      console.log(dim('\nMau pakai provider apa?'));
+      const idx = await pickFromList(rl, options);
+      providerId = idx === 0 ? 'zen' : idx === 1 ? 'ollama' : undefined;
+      if (!providerId) {
+        const others = PRESETS.filter((p) => !['zen', 'ollama', 'lmstudio', 'custom-openai', 'custom-anthropic'].includes(p.id));
+        const pIdx = await pickFromList(rl, others.map((p) => `${p.label}${p.blurb ? ` — ${p.blurb}` : ''}`));
+        providerId = others[pIdx]!.id;
+      }
+    }
+    const preset = presetById(providerId);
+    if (!preset) throw new Error(`provider tidak dikenal: ${providerId}`);
+
+    console.log(dim(`\n${preset.label}${preset.blurb ? ` — ${preset.blurb}` : ''}\n`));
+
+    // 2. key
+    let apiKey: string | undefined =
+      process.env['WINDCODE_API_KEY'] ?? (preset.envKey ? process.env[preset.envKey] : undefined);
+    if (!preset.keyless) {
+      if (preset.keyUrl) console.log(dim(`Ambil API key di: ${preset.keyUrl}`));
+      if (apiKey) {
+        console.log(cyan(`  ✓ key terdeteksi dari env (${preset.envKey ?? 'WINDCODE_API_KEY'})`));
+      } else {
+        const key = await question(rl, dim('Paste API key (kosongkan untuk lewati): '));
+        apiKey = key || undefined;
+        if (!apiKey) console.log(yellow('  Tanpa key, provider ini belum bisa dipakai — bisa diisi ulang via `windcode login`.'));
+      }
     }
 
-    const hasZenKey = Boolean(config.apiKeys['zen']);
-    const options = [
-      `OpenCode Zen — gratis, recommended${hasZenKey ? ' (key sudah ada)' : ''}  → daftar di opencode.ai/zen`,
-      'Ollama — 100% lokal, tanpa API key (butuh `ollama serve` jalan)',
-      'Provider lain — OpenRouter / Groq / Gemini / Anthropic / dll (BYOK)',
-    ];
-    console.log(dim('\nMau pakai provider apa?'));
-    const idx = await pickFromList(rl, options);
-    const providerId = idx === 0 ? 'zen' : idx === 1 ? 'ollama' : null;
-
-    if (providerId) {
-      await configureProvider(rl, providerId, config);
-    } else {
-      const others = PROVIDERS.filter((p) => !['zen', 'ollama'].includes(p.id));
-      const pIdx = await pickFromList(rl, others.map((p) => `${p.name} — ${p.blurb ?? ''}`));
-      await configureProvider(rl, others[pIdx].id, config);
+    // 3. model — prefer what the endpoint actually lists
+    let model = preset.fallbackModels?.[0] ?? DEFAULT_MODEL;
+    const result = await fetchModels(preset, apiKey ?? '');
+    if (result.warning) console.log(dim(`  (${result.warning})`));
+    const models = result.models;
+    if (models.length > 0) {
+      const recommended = preset.fallbackModels ?? [];
+      const shown = [
+        ...recommended.filter((id) => models.includes(id)),
+        ...models.filter((id) => !recommended.includes(id)).slice(0, 25),
+      ];
+      console.log(dim(`Endpoint melaporkan ${models.length} model. Teratas = rekomendasi.`));
+      const idx = await pickFromList(rl, shown);
+      model = shown[idx] ?? model;
+    } else if (preset.fallbackModels && preset.fallbackModels.length > 1) {
+      const idx = await pickFromList(rl, preset.fallbackModels);
+      model = preset.fallbackModels[idx]!;
     }
-    return config;
+
+    const patch: Partial<Config> = {
+      provider: providerId,
+      presetId: providerId,
+      model,
+      baseURL: preset.baseURL,
+      ...(apiKey ? { apiKey } : {}),
+    };
+    writeConfigFile(patch);
+    console.log(`\n${cyan('✓')} tersimpan: ${bold(preset.label)} / ${bold(model)}`);
+    console.log(dim(`  config: ${configPath()}`));
+
+    return { provider: providerId, presetId: providerId, model, baseURL: preset.baseURL, ...(apiKey ? { apiKey } : {}) };
   } finally {
     rl.close();
   }
 }
+
+void DEFAULT_PRESET_ID;
